@@ -1,23 +1,54 @@
+import glob
 import os
 import json
+import re
+import datetime
 import openai
 from dotenv import load_dotenv
 load_dotenv()
 
 openai.api_key = os.environ['OPENAI_API_KEY']
 
-# prompt = "This is part three of a coding video for web developers.\n\nVideo description:\n\nIf you've ever been stuck on what tests to write for your code, Jest's coverage reports can be a great tool for showing what sections of your codebase are not tested yet. It becomes even more powerful when used in combination with Continuous Integration (CI), as it can be automated and even block pull requests from merging, which we'll show in this video.\n\nPrevious segment:\n\nThen down here, you know, that was that one conditional that we couldn't cover. And now it's so much lower, because this file overall has dropped it. I really like this because it's a good way to kind of it's like a measure of confidence of, you know, of all my files, how well tested are they? Well, if some things are like completely not tested, they're really going to bring down your overall confidence rating in the code base."
+INPUT_DIR = 'input'
+OUTPUT_DIR = 'output'
 
-# prompt = "If you've ever been stuck on what tests to write for your code, Jest's coverage reports can be a great tool for showing what sections of your codebase are not tested yet. It becomes even more powerful when used in combination with Continuous Integration (CI), as it can be automated and even block pull requests from merging, which we'll show in this video. 00:00 - What we'll cover 01:09 - Project overview 03:10 - When is coverage useful?  08:04 - Exploring the report in the browser 15:25 - Increasing coverage with a test 20:20 - Covering conditionals (branches) 24:49 - Gotchas with random outcomes in tests 28:32 - Adding a config for coverage customization 33:58 - Expanding coverage on a previously untested file 36:44 - Failing a test run on poor coverage 43:05 - Pull request workflow example (CI) 52:50 - Wrap-up"
+previous_base_name = None
+previous_segment = None
 
-prompt = "This is some example text that demonstrates what kind of output we want. This one is somewhat formal and stiff and does not include any filler words. But we'll make sure to add a little extra, some commas at least, because a couple sentences isn't enough to keep punctuation the whole way through."
+for mp3_file in glob.glob(os.path.join(INPUT_DIR, '*.mp3')):
+    audio_file_name = os.path.splitext(os.path.basename(mp3_file))[0]
 
-audio_file = open("jest-coverage-part1.mp3", "rb")
-transcript = openai.Audio.transcribe("whisper-1", audio_file, prompt=prompt)
+    print(f'Processing {audio_file_name}...')
+    
+    audio_file = open(mp3_file, "rb")
+    base_name = re.sub(r'_\d+$', '', os.path.splitext(mp3_file)[0])
 
-with open(f"./response.json", "w") as file:
-    json_string = json.dumps(transcript)
-    file.write(json_string)
+    if base_name != previous_base_name:
+        previous_segment = None
 
-with open(f"./text.txt", "w") as file:
-    file.write(transcript["text"])
+    prompt = ''
+    txt_file = base_name + '.txt'
+
+    if not os.path.exists(txt_file):
+        print(f'No txt file for {base_name}')
+        continue
+
+    with open(txt_file, 'r') as f:
+        prompt = f.read()
+
+    if previous_segment != None:
+        prompt += f'\n\nPrevious segment:\n\n{previous_segment}'
+
+    response = openai.Audio.transcribe("whisper-1", audio_file, prompt=prompt)
+
+    previous_segment = response["text"][-300:]
+
+    timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+
+    with open(os.path.join(OUTPUT_DIR, f'{timestamp}_{audio_file_name}_response.json'), "w") as file:
+        file.write(json.dumps({"prompt": prompt, "response": response}))
+
+    with open(os.path.join(OUTPUT_DIR, f'{timestamp}_{audio_file_name}.txt'), "w") as file:
+        file.write(response["text"])
+
+    previous_base_name = base_name
